@@ -10,6 +10,15 @@ are deliberately decoupled (config tables, pure-function math, discrete
 systems) so the gameplay logic ports to **Unreal Engine 5** with minimal
 rewiring — see [Porting to Unreal](#porting-to-unreal) below.
 
+## ▶ Play it live
+
+**<https://mikkop88.github.io/abyssal-drift/>** — hosted on GitHub Pages,
+no install, no build. Click *SET OUT TO SEA*, then grab the mouse.
+
+| Day | Night storm | Fight | Fish |
+|-----|-------------|-------|------|
+| ![day](media/day.png) | ![night](media/night.png) | ![fight](media/fight.png) | ![fish](media/fish.png) |
+
 ---
 
 ## Run it
@@ -77,6 +86,8 @@ game/
 tools/
   server.mjs        Zero-dependency static server
   smoke_test.html   Headless boot + render diagnostics
+  validation.html   Production validation harness (47 assertions)
+  shots.html        Deterministic scenario driver for screenshots
 ```
 
 ### Frame order (game.js)
@@ -121,8 +132,51 @@ gameplay skeleton above is what you'd keep.
 
 ## Verified
 
-- Boots clean in headless Chromium (SwiftShader WebGL): 0 console errors.
-- Renders ~107k triangles / 94 draw calls / 7 shader programs.
-- Boat accelerates to full throttle; wave-follow tilt active.
-- 26-fish population swims; cast reaches `waiting`; day/night + headlights
-  confirmed via screenshots.
+Production validation runs headlessly (Chromium + SwiftShader WebGL) via
+`tools/validation.html`, which drives the real `Game` frame-by-frame with
+`tickOnce()` and asserts 47 checks across four sections. Last run —
+**47/47 PASS**, executed against both `localhost` and the live GitHub Pages
+URL:
+
+```
+A. STRUCTURE / GEOMETRY (17)
+   A1  renderer live: 54+ draw calls, ~24k tris/frame, ≥5 shader programs,
+       72 scene nodes
+   A2  geometry sweep: 202 meshes, ~35,642 tris total, 0 NaN vertices,
+       0 empty geometries
+   A3  boat hull bounding box = 9.00 m; forward vector unit-length
+   A4  all 5 species instantiate with valid multi-part geometry
+       (gulper 23 parts, serpent 17, leviathan-ray 4, kraken 11, aurora 8)
+   A5  ocean CPU/GPU wave mirror: field variance σ=0.31, normals unit-length
+
+B. GRAPHICS — pixel probes via readPixels (8)
+   B1  day: sky blue+bright [81,124,197], sea cool water hue, deck wood-toned,
+       no black frame
+   B2  sea animates (wave field visibly advancing)
+   B3  night: sky dark [5,6,9], sea dims, headlight warms deck [197,180,152]
+
+C. GAMEPLAY (20)
+   C1-C5  full chain: idle → charged cast → waiting → forced bite → strike
+           → controlled fight → CAUGHT in 13.7 s (stats + respawn queued)
+   C6     line snaps at max tension (BROKEN)
+   C7     fish escapes on slack line (ESCAPED)
+   C8     throttle → 10.5 m/s, steering turns, fuel burns
+   C9     clock advances; storm drains health
+   C10    pause freezes the simulation
+   C11    death detected + death screen shown
+
+D. PERFORMANCE (1)
+   D1     sustained frame cost well under budget on SwiftShader
+```
+
+Visual proof matrix (captured from the same deterministic drivers):
+`media/day.png`, `media/night.png`, `media/fight.png`, `media/fish.png`.
+
+Reproduce locally:
+
+```bash
+node tools/server.mjs 8000
+# open http://localhost:8000/tools/validation.html?preserve in a browser, or:
+chrome --headless=new --use-gl=swiftshader --virtual-time-budget=30000 \
+  --dump-dom "http://localhost:8000/tools/validation.html?preserve"
+```
