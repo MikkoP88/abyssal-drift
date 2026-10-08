@@ -1,0 +1,187 @@
+/* ===========================================================================
+   Abyssal Drift — HUD styling
+   Dark maritime glass panels, high-legibility type, subtle motion.
+   =========================================================================== */
+
+:root {
+  --panel-bg: rgba(8, 16, 24, 0.55);
+  --panel-border: rgba(140, 190, 220, 0.25);
+  --text: #dcebf5;
+  --text-dim: #8fa8ba;
+  --accent: #57c8ff;
+  --danger: #ff4d4d;
+  --good: #5dff9d;
+  --amber: #ffb84d;
+  --font: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+}
+
+html, body {
+  margin: 0; padding: 0; overflow: hidden;
+  background: #04080d;
+  font-family: var(--font);
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+canvas { display: block; }
+
+#hud-root { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 10px 14px;
+}
+
+/* ---- Vitals (top-left) ---- */
+.vitals { position: absolute; top: 18px; left: 18px; width: 230px; }
+.bar-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.bar-label {
+  font-size: 10px; letter-spacing: 0.14em; color: var(--text-dim);
+  width: 58px; flex-shrink: 0;
+}
+.bar {
+  flex: 1; height: 8px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.bar.wide { height: 12px; }
+.bar-fill {
+  height: 100%; width: 100%; border-radius: 4px;
+  transition: width 0.12s linear;
+}
+.bar-fill.health { background: linear-gradient(90deg, #2ecc71, #5dff9d); }
+.bar-fill.stamina { background: linear-gradient(90deg, #3498db, #57c8ff); }
+.bar-fill.fuel { background: linear-gradient(90deg, #e67e22, #ffd166); }
+.bar-fill.charge { background: linear-gradient(90deg, #57c8ff, #aef); }
+.bar-fill.tension { background: linear-gradient(90deg, #5dff9d, #ffb84d, #ff4d4d); }
+.bar-fill.catch { background: linear-gradient(90deg, #ffb84d, #ffe28a); }
+
+.tension-bar { position: relative; }
+.sweet-spot {
+  position: absolute; top: 0; bottom: 0;
+  left: 45%; width: 40%;
+  background: rgba(255, 184, 77, 0.25);
+  border-left: 1px solid rgba(255, 184, 77, 0.7);
+  border-right: 1px solid rgba(255, 184, 77, 0.7);
+}
+.tension-bar.danger .bar-fill.tension { box-shadow: 0 0 12px var(--danger); }
+
+/* ---- Clock (top-right) ---- */
+.clockbox { position: absolute; top: 18px; right: 18px; text-align: right; }
+#hud-clock { font-size: 26px; font-weight: 600; letter-spacing: 0.06em; }
+#hud-weather { font-size: 11px; letter-spacing: 0.18em; color: var(--text-dim); margin-top: 2px; }
+
+/* ---- Compass strip (top-center) ---- */
+.compass-strip {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  width: 420px; height: 34px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cmark {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  font-size: 10px; color: var(--text-dim);
+}
+.cmark.major { font-size: 13px; font-weight: 700; color: var(--text); }
+.cneedle {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
+  margin-left: -1px; background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* ---- Fishing UI (bottom-center) ---- */
+.fishing-ui {
+  position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+  width: 420px; text-align: center;
+}
+.meter-block { margin-top: 8px; }
+.meter-label { font-size: 10px; letter-spacing: 0.2em; color: var(--text-dim); }
+.alert {
+  font-size: 18px; font-weight: 700; letter-spacing: 0.1em;
+  min-height: 26px; margin-bottom: 6px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+.alert.strike { color: var(--good); animation: pulse 0.4s infinite alternate; }
+.alert.danger { color: var(--danger); animation: pulse 0.3s infinite alternate; }
+.alert.hint { color: var(--accent); font-size: 14px; }
+@keyframes pulse { from { opacity: 0.6; } to { opacity: 1; } }
+
+/* ---- Controls hint (bottom-left) ---- */
+.controls-hint {
+  position: absolute; bottom: 18px; left: 18px;
+  font-size: 11px; color: var(--text-dim); line-height: 1.7;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 8px; padding: 8px 12px;
+}
+.controls-hint b { color: var(--text); }
+
+/* ---- Toast ---- */
+.toast {
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%) translateY(-10px);
+  padding: 10px 26px; border-radius: 8px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  font-size: 16px; font-weight: 600; letter-spacing: 0.04em;
+  opacity: 0; transition: opacity 0.3s, transform 0.3s;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.good { border-color: var(--good); color: var(--good); }
+.toast.bad { border-color: var(--danger); color: var(--danger); }
+
+/* ---- Crosshair ---- */
+.crosshair {
+  position: absolute; top: 50%; left: 50%;
+  width: 6px; height: 6px; margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.85);
+  box-shadow: 0 0 6px rgba(0,0,0,0.9);
+}
+.crosshair.hidden { display: none; }
+
+/* ---- Damage / warning overlays ---- */
+.damage-vignette {
+  position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(180, 20, 20, 0.55) 100%);
+  transition: opacity 0.2s;
+}
+.warn-flash {
+  position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(255, 170, 40, 0.3) 100%);
+}
+
+/* ---- Full-screen menus ---- */
+.screen {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(4, 10, 18, 0.82), rgba(2, 5, 10, 0.96));
+  pointer-events: auto;
+  text-align: center; padding: 24px;
+}
+.screen h1 {
+  font-size: 54px; letter-spacing: 0.22em; margin: 0 0 6px;
+  font-weight: 800; color: var(--text);
+  text-shadow: 0 0 30px rgba(87, 200, 255, 0.4);
+}
+.death-title { color: var(--danger); text-shadow: 0 0 30px rgba(255, 77, 77, 0.4); }
+.subtitle { color: var(--text-dim); letter-spacing: 0.14em; font-size: 14px; margin-bottom: 26px; }
+.screen-body { max-width: 560px; color: var(--text); font-size: 15px; line-height: 1.65; }
+.instructions { list-style: none; padding: 0; margin: 18px 0; text-align: left; display: inline-block; }
+.instructions li { margin: 6px 0; color: var(--text-dim); }
+.instructions b { color: var(--accent); }
+.tip { color: var(--amber); font-size: 13px; }
+.btn {
+  margin-top: 28px; padding: 14px 44px;
+  font-size: 16px; font-weight: 700; letter-spacing: 0.18em;
+  color: #04121c; background: linear-gradient(180deg, #7fdcff, #3aa8e0);
+  border: none; border-radius: 8px; cursor: pointer;
+  box-shadow: 0 6px 24px rgba(87, 200, 255, 0.35);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(87, 200, 255, 0.5); }
+.btn:active { transform: translateY(0); }

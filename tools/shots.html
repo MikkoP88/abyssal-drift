@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>shots</title><link rel="stylesheet" href="../styles.css" /></head>
+<body>
+<canvas id="game-canvas"></canvas>
+<div id="ui-layer"></div>
+<script type="module">
+// Deterministic scenario driver for proof screenshots.
+// ?scene=day|night|fight|fish — sets up the scene synchronously via
+// tickOnce(), then spins a live rAF loop so the compositor captures
+// a real rendered frame (a single synchronous render is composited
+// too late for --screenshot).
+import Game from '../game/game.js';
+import { FishState } from '../game/fishing.js';
+
+const scene = new URLSearchParams(location.search).get('scene') || 'day';
+const game = new Game(document.getElementById('game-canvas'), document.getElementById('ui-layer'));
+game.hud.hideScreens();
+const DT = 1 / 60;
+const tick = (n = 1) => { for (let i = 0; i < n; i++) game.tickOnce(DT); };
+const key = (code, down) => window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code }));
+
+if (scene === 'night') {
+  game.hour = 22.5;
+  game.storm = true; // rain + dark sky + headlight beam
+  tick(90);
+} else if (scene === 'fight') {
+  const F = game.fishing;
+  key('Space', true); tick(25); key('Space', false); tick(2); // cast
+  const fish = game.population.fish[0];
+  fish.group.position.set(F.bobberPos.x, F.bobberPos.y - 4, F.bobberPos.z);
+  F._biteTimer = -1; tick(1);                                   // force bite
+  key('Space', true); tick(1); key('Space', false); tick(1);   // strike
+  for (let i = 0; i < 150; i++) {                               // stabilize fight
+    game.input.mouseDown = F.tension < 0.75;
+    tick(1);
+    if (F.state === FishState.CAUGHT || F.state === FishState.BROKEN) break;
+  }
+} else if (scene === 'fish') {
+  // Park a specimen just under the surface ahead of the bow.
+  const fish = game.population.fish[0];
+  fish.group.position.set(3, -1.2, -14);
+  tick(40);
+} else {
+  tick(40);
+}
+
+// Keep the sim + render loop alive for the screenshot capture.
+// Fight scene: pin the meters mid-band so the shot doesn't race the catch.
+(function loop() {
+  if (scene === 'fight') {
+    game.fishing.tension = 0.62;
+    game.fishing.catchMeter = 0.5;
+    game.input.mouseDown = true;
+  }
+  game.tickOnce(DT);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

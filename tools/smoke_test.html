@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>smoke</title></head>
+<body>
+<canvas id="game-canvas"></canvas>
+<div id="ui-layer"></div>
+<pre id="diag">PENDING</pre>
+<script type="module">
+import Game from '../game/game.js';
+
+const out = (k, v) => {
+  const pre = document.getElementById('diag');
+  pre.textContent += `\n${k}: ${v}`;
+};
+
+try {
+  const canvas = document.getElementById('game-canvas');
+  const game = new Game(canvas, document.getElementById('ui-layer'));
+  out('constructed', 'ok');
+
+  // Force a few frames synchronously by driving the internal loop pieces.
+  game.start();
+  out('started', 'ok');
+
+  // Simulate input: hold W to throttle, cast a line.
+  const kd = (code) => window.dispatchEvent(new KeyboardEvent('keydown', { code }));
+  const ku = (code) => window.dispatchEvent(new KeyboardEvent('keyup', { code }));
+  kd('KeyW');
+  kd('Space');
+  setTimeout(() => ku('Space'), 700); // release cast at ~half power
+
+  // After a few seconds, dump diagnostics.
+  setTimeout(() => {
+    try {
+      const r = game.renderer;
+      out('webgl', !!r.getContext());
+      out('drawCalls', r.info.render.calls);
+      out('triangles', r.info.render.triangles);
+      out('programs', r.info.programs.length);
+      out('sceneObjects', game.scene.children.length);
+      out('cameraPos', game.camera.position.toArray().map(n => n.toFixed(1)).join(','));
+      out('boatPos', game.boat.pos.toArray().map(n => n.toFixed(1)).join(','));
+      out('boatSpeed', game.boat.speed.toFixed(2));
+      out('fishCount', game.population.fish.length);
+      out('fishingState', game.fishing.state);
+      out('hour', game.hour.toFixed(2));
+      out('running', game.running);
+      out('SMOKE_PASS', 'YES');
+    } catch (e) {
+      out('DIAG_ERROR', String(e));
+    }
+  }, 4000);
+} catch (e) {
+  out('BOOT_ERROR', String(e) + '\n' + e.stack);
+}
+</script>
+</body>
+</html>

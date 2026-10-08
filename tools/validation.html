@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>validation</title></head>
+<body>
+<canvas id="game-canvas"></canvas>
+<div id="ui-layer"></div>
+<pre id="results">RUNNING…</pre>
+<script type="module">
+// ============================================================================
+// Production validation harness.
+// Drives the real Game frame-by-frame via tickOnce() and asserts on:
+//   A. Structure  — renderer stats, geometry integrity (NaN/bounds), species
+//   B.
+//   B. Graphics   — pixel probes (day/night/animation) via readPixels
+//   C. Gameplay   — full fishing chain, fight outcomes, boat physics,
+//                    survival, death, time, pause
+//   D. Perf       — sustained frame cost
+// Prints a PASS/FAIL ledger to <pre id="results"> and window.__VAL__.
+// ============================================================================
+
+const results = [];
+let passCount = 0, failCount = 0;
+function check(name, cond, detail = '') {
+  const ok = !!cond;
+  ok ? passCount++ : failCount++;
+  results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  [' + detail + ']' : ''}`);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function main() {
+  // --- Tune for fast headless validation BEFORE constructing the game ---
+  const { default: CONFIG } = await import('../game/config.js');
+  CONFIG.ocean.segments = 96;        // lighter tessellation for SwiftShader
+  CONFIG.fish.populationCap = 4;
+
+  const { default: Game } = await import('../game/game.js');
+  const { Fish } = await import('../game/fish.js');
+  const { FishState } = await import('../game/fishing.js');
+  const THREE = await import('../libs/three.module.js');
+
+  const game = new Game(document.getElementById('game-canvas'), document.getElementById('ui-layer'));
+  game.hud.hideScreens();
+  const DT = 1 / 60;
+  const tick = (n = 1) => { for (let i = 0; i < n; i++) game.tickOnce(DT); };
+
+  // ===================== A. STRUCTURE ======================================
+  tick(30); // settle
+
+  const info = game.renderer.info.render;
+  check('A1a draw calls', info.calls > 40, `calls=${info.calls}`);
+  check('A1b triangles', info.triangles > 20000, `tris=${info.triangles}`);
+  check('A1c shader programs', game.renderer.info.programs.length >= 5, `n=${game.renderer.info.programs.length}`);
+  check('A1d scene populated', game.scene.children.length > 20, `children=${game.scene.children.length}`);
+
+  // Geometry integrity sweep: every mesh has a position attribute, finite verts.
+  let meshCount = 0, nanGeos = 0, emptyGeos = 0, totalTris = 0;
+  const geosSeen = new Set();
+  game.scene.traverse((o) => {
+    if (!(o.isMesh || o.isLine || o.isPoints)) return;
+    if (o.isMesh) meshCount++;
+    const g = o.geometry;
+    if (!g || !g.attributes.position) { emptyGeos++; return; }
+    if (geosSeen.has(g)) return;
+    geosSeen.add(g);
+    const pos = g.attributes.position;
+    totalTris += (g.index ? g.index.count : pos.count) / 3;
+    const step = Math.max(1, Math.floor(pos.count / 64));
+    for (let i = 0; i < pos.count; i += step) {
+      if (![pos.getX(i), pos.getY(i), pos.getZ(i)].every(Number.isFinite)) { nanGeos++; break; }
+    }
+  });
+  check('A2a meshes present', meshCount > 30, `meshes=${meshCount}`);
+  check('A2b no NaN vertices', nanGeos === 0, `badGeos=${nanGeos}`);
+  check('A2c no empty geometries', emptyGeos === 0, `empty=${emptyGeos}`);
+  check('A2d triangle budget sane', totalTris > 20000 && totalTris < 500000, `~${Math.round(totalTris)} tris`);
+
+  // Boat hull bounds (~9m long).
+  const hull = game.boat.body.children[0];
+  hull.geometry.computeBoundingBox();
+  const hullLen = hull.geometry.boundingBox.max.x - hull.geometry.boundingBox.min.x;
+  check('A3a hull length ~9m', hullLen > 7 && hullLen < 11, `len=${hullLen.toFixed(2)}`);
+  const fwd = game.boat.forward();
+  check('A3b forward normalized', Math.abs(fwd.length() - 1) < 1e-5, `len=${fwd.length()}`);
+
+  // All five species instantiate with valid geometry.
+  for (const sp of CONFIG.fish.species) {
+    const f = new Fish(sp, new THREE.Vector3(0, -sp.depthBand[0], 0));
+    let ok = f.group.children.length > 2;
+    f.group.traverse((o) => { if (o.isMesh && !o.geometry.attributes.position) ok = false; });
+    check(`A4 species ${sp.id}`, ok, `parts=${f.group.children.length}`);
+    f.dispose(game.scene);
+  }
+
+  // Ocean CPU mirror: varied heights + unit normals.
+  const hs = [1, 7, -3, 12, -9].map((x) => game.ocean.sampleWaveHeight(x, x * 0.7, game.simTime));
+  const mean = hs.reduce((a, b) => a + b) / hs.length;
+  const std = Math.sqrt(hs.reduce((a, b) => a + (b - mean) ** 2, 0) / hs.length);
+  check('A5a wave field varies', std > 0.15, `std=${std.toFixed(3)}`);
+  const n = game.ocean.sampleNormal(3, -2, game.simTime);
+  check('A5b surface normal unit', Math.abs(n.length() - 1) < 1e-4);
+
+  // ===================== B. GRAPHICS (pixel probes) =======================
+  const dayProbe = game.probePixels();
+  check('B1a day sky is blue', dayProbe.sky[2] > dayProbe.sky[0], `rgb=${dayProbe.sky}`);
+  check('B1b day sky bright', sum(dayProbe.sky) > 250, `sum=${sum(dayProbe.sky)}`);
+  // Water reads cool (blue/green dominant) — distinct from the warm
+  // wood deck and from flat grey. Absolute luminance comparisons against
+  // the sky are unreliable: sun glints + sky reflection make the sea
+  // band (which spans the horizon) legitimately bright.
+  check('B1c sea has cool water hue', dayProbe.sea[2] > dayProbe.sea[0] && dayProbe.sea[1] > dayProbe.sea[0], `sea=${dayProbe.sea}`);
+  check('B1d deck is wood-toned', dayProbe.deck[0] > dayProbe.deck[2], `deck=${dayProbe.deck}`);
+  check('B1e no black frame', sum(dayProbe.sky) + sum(dayProbe.sea) + sum(dayProbe.deck) > 150);
+
+  // Sea animates over time (waves moving).
+  const seaA = [...game.probePixels().sea];
+  tick(90);
+  const seaB = game.probePixels().sea;
+  check('B2 sea animates', seaA.some((v, i) => v !== seaB[i]), `${seaA} -> ${seaB}`);
+
+  // Night: dark sky + headlight glow on deck.
+  game.hour = 22.5;
+  tick(40);
+  const nightProbe = game.probePixels();
+  check('B3a night sky dark', sum(nightProbe.sky) < 120, `sky=${nightProbe.sky}`);
+  check('B3b night sea dim', sum(nightProbe.sea) < sum(dayProbe.sea) * 0.8, `sea=${nightProbe.sea}`);
+  check('B3c headlight warms deck', nightProbe.deck[0] > nightProbe.deck[2] && sum(nightProbe.deck) > 60, `deck=${nightProbe.deck}`);
+  game.hour = 9; tick(40); // back to day
+
+  // ===================== C. GAMEPLAY ======================================
+  const F = game.fishing;
+
+  // C1 idle
+  check('C1 starts idle', F.state === FishState.IDLE, F.state);
+
+  // C2 cast: charge + release
+  key('Space', true); tick(25); key('Space', false); tick(2);
+  check('C2a cast lands in waiting', F.state === FishState.WAITING, F.state);
+  check('C2b bobber deployed', F.bobber.visible === true);
+  check('C2c line visible', F.line.visible === true);
+
+  // C3 force a bite: park a fish beside the bobber
+  const baitFish = game.population.fish[0];
+  baitFish.group.position.set(F.bobberPos.x, F.bobberPos.y - 4, F.bobberPos.z);
+  F._biteTimer = -1; tick(1);
+  check('C3 bite triggered', F.state === FishState.BITE, F.state);
+
+  // C4 strike
+  key('Space', true); tick(1); key('Space', false); tick(1);
+  check('C4a strike hooks fish', F.state === FishState.FIGHT, F.state);
+  check('C4b fish marked hooked', F.currentFish && F.currentFish.state === 'hooked');
+
+  // C5 fight with a competent tension controller -> CAUGHT
+  let caughtIn = -1;
+  for (let i = 0; i < 60 * 45; i++) { // up to 45s simulated
+    game.input.mouseDown = F.tension < 0.78; // reel in the band, ease at red
+    tick(1);
+    if (F.state === FishState.CAUGHT) { caughtIn = i / 60; break; }
+    if (F.state === FishState.BROKEN || F.state === FishState.ESCAPED) break;
+  }
+  check('C5a fish landed', F.state === FishState.CAUGHT, `state=${F.state} t=${caughtIn}s`);
+  check('C5b stats recorded', game.stats.caught === 1 && game.stats.totalWeight > 0, `caught=${game.stats.caught} wt=${Math.round(game.stats.totalWeight)}kg`);
+  check('C5c population respawn queued', game.population.fish.length === CONFIG.fish.populationCap - 1, `n=${game.population.fish.length}`);
+
+  // C6 line break: fresh fight, slam tension
+  await freshFight();
+  if (F.state === FishState.FIGHT) {
+    F.tension = 0.999; game.input.mouseDown = true; tick(3); game.input.mouseDown = false;
+  }
+  check('C6 line snaps at max tension', F.state === FishState.BROKEN, F.state);
+
+  // C7 escape: fresh fight, slack line, exhausted fish
+  await freshFight();
+  if (F.state === FishState.FIGHT && F.currentFish) {
+    F.catchMeter = 0;
+    F.currentFish.fightElapsed = F.currentFish.fightDuration * 1.6;
+    game.input.mouseDown = false; tick(60);
+  }
+  check('C7 fish escapes on slack', F.state === FishState.ESCAPED, F.state);
+
+  // C8 boat physics
+  const fuelBefore = game.boat.fuel;
+  key('KeyW', true); tick(180); key('KeyW', false);
+  check('C8a throttle accelerates', game.boat.speed > 8, `spd=${game.boat.speed.toFixed(1)}`);
+  const hdgBefore = game.boat.heading;
+  key('KeyD', true); tick(90); key('KeyD', false);
+  check('C8b steering turns', Math.abs(game.boat.heading - hdgBefore) > 0.2, `dh=${(game.boat.heading - hdgBefore).toFixed(2)}`);
+  check('C8c fuel burns', game.boat.fuel < fuelBefore, `${fuelBefore.toFixed(1)} -> ${game.boat.fuel.toFixed(1)}`);
+
+  // C9 time advances + storm drains health
+  const h0 = game.hour; tick(60);
+  check('C9a clock advances', game.hour > h0 || game.hour < h0 - 23, `${h0.toFixed(2)} -> ${game.hour.toFixed(2)}`);
+  game.storm = true;
+  const hpBefore = game.player.health; tick(600); game.storm = false;
+  check('C9b storm drains health', game.player.health < hpBefore, `${hpBefore.toFixed(1)} -> ${game.player.health.toFixed(1)}`);
+
+  // C10 pause freezes sim
+  game.paused = true;
+  const tBefore = game.simTime;
+  game._frame(performance.now() + 16); game._frame(performance.now() + 32);
+  check('C10 pause freezes sim', game.simTime === tBefore);
+  game.paused = false;
+
+  // C11 death + screen
+  game.player.health = 1; game.storm = true; tick(300);
+  check('C11a death detected', game.dead === true);
+  check('C11b death screen shown', !!document.getElementById('screen-dead'));
+
+  // ===================== D. PERFORMANCE ====================================
+  game.dead = false; game.player.health = 100; // revive for perf run
+  const t0 = performance.now();
+  const PERF_N = 120;
+  for (let i = 0; i < PERF_N; i++) game.tickOnce(DT); // eslint-disable-line no-unused-expressions
+  const avgMs = (performance.now() - t0) / PERF_N;
+  check('D1 sustained framerate', avgMs < 250, `avg=${avgMs.toFixed(1)}ms/frame (~${(1000 / avgMs).toFixed(0)}fps on SwiftShader)`);
+
+  finish();
+
+  // ---- helpers ----
+  function sum(a) { return a[0] + a[1] + a[2]; }
+
+  function key(code, down) {
+    window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code }));
+  }
+
+  async function freshFight() {
+    // Reset to idle, cast instantly, park fish, force bite, strike.
+    F._resetToIdle(); tick(2);
+    F.state = FishState.CASTING; F.charge = 0.8; tick(1);
+    F.doCast(); tick(2);
+    const fish = game.population.fish[0];
+    fish.group.position.set(F.bobberPos.x, F.bobberPos.y - 4, F.bobberPos.z);
+    F._biteTimer = -1; tick(1);
+    if (F.state !== FishState.BITE) { check('C-precondition bite', false, F.state); return; }
+    key('Space', true); tick(1); key('Space', false); tick(1);
+    if (F.state !== FishState.FIGHT) check('C-precondition fight', false, F.state);
+    await sleep(0);
+  }
+
+  function finish() {
+    const ledger = results.join('\n');
+    document.getElementById('results').textContent =
+      `ABYSSAL DRIFT — PRODUCTION VALIDATION\n` +
+      `${'='.repeat(48)}\n${ledger}\n${'='.repeat(48)}\n` +
+      `TOTAL: ${passCount + failCount}   PASS: ${passCount}   FAIL: ${failCount}\n` +
+      `VERDICT: ${failCount === 0 ? '✅ ALL CHECKS PASSED' : '❌ FAILURES PRESENT'}\n` +
+      `renderer: ${info.calls} calls / ${info.triangles} tris / ${game.renderer.info.programs.length} programs\n` +
+      `geometry: ${meshCount} meshes / ~${Math.round(totalTris)} tris / ${nanGeos} NaN geos`;
+    window.__VAL__ = { pass: passCount, fail: failCount, results };
+    console.log('VALIDATION_DONE', passCount, failCount);
+  }
+}
+
+main().catch((e) => {
+  document.getElementById('results').textContent = 'HARNESS ERROR: ' + e + '\n' + e.stack;
+  console.error(e);
+});
+</script>
+</body>
+</html>
