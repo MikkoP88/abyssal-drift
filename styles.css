@@ -75,6 +75,21 @@ canvas { display: block; }
 .clockbox { position: absolute; top: 18px; right: 18px; text-align: right; }
 #hud-clock { font-size: 26px; font-weight: 600; letter-spacing: 0.06em; }
 #hud-weather { font-size: 11px; letter-spacing: 0.18em; color: var(--text-dim); margin-top: 2px; }
+#hud-mode {
+  display: inline-block; margin-top: 8px; padding: 3px 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.2em;
+  color: var(--accent); border: 1px solid var(--panel-border);
+  border-radius: 20px; background: rgba(87, 200, 255, 0.08);
+}
+
+/* ---- Contextual prompt (above fishing UI) ---- */
+.prompt {
+  position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%);
+  padding: 8px 18px; border-radius: 8px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  font-size: 13px; letter-spacing: 0.04em; white-space: nowrap;
+}
+.prompt b { color: var(--accent); }
 
 /* ---- Compass strip (top-center) ---- */
 .compass-strip {

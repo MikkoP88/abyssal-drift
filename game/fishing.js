@@ -27,6 +27,7 @@ export class FishingSystem {
     this.boat = boat;
     this.population = population;
     this.audio = audio;
+    this.enabled = true; // false while the player is on foot (no rod)
 
     this.state = FishState.IDLE;
     this.stateTime = 0;
@@ -124,7 +125,7 @@ export class FishingSystem {
     const F = CONFIG.fishing;
     switch (this.state) {
       case FishState.IDLE:
-        if (input.pressedOnce('Space')) {
+        if (this.enabled && input.pressedOnce('Space')) {
           this.state = FishState.CASTING;
           this.charge = 0;
           this.stateTime = 0;
@@ -343,6 +344,9 @@ export class FishingSystem {
   }
 
   _updateVisuals(dt, time) {
+    // The rod is a first-person prop — invisible while on foot.
+    this.rodGroup.visible = this.enabled;
+
     // Rod kick during fight (bends toward the fish).
     const targetKick = this.state === FishState.FIGHT ? this.tension * 0.5 : 0;
     this.rodKick = damp(this.rodKick, targetKick, 8, dt);

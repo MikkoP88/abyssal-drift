@@ -47,7 +47,9 @@ async function main() {
   tick(30); // settle
 
   const info = game.renderer.info.render;
-  check('A1a draw calls', info.calls > 40, `calls=${info.calls}`);
+  // Lower bound is conservative: fish are frustum-culled, so the count
+  // depends on what's in view (observed 37-57 across runs).
+  check('A1a draw calls', info.calls > 30, `calls=${info.calls}`);
   check('A1b triangles', info.triangles > 20000, `tris=${info.triangles}`);
   check('A1c shader programs', game.renderer.info.programs.length >= 5, `n=${game.renderer.info.programs.length}`);
   check('A1d scene populated', game.scene.children.length > 20, `children=${game.scene.children.length}`);
@@ -205,8 +207,66 @@ async function main() {
   check('C11a death detected', game.dead === true);
   check('C11b death screen shown', !!document.getElementById('screen-dead'));
 
+  // ===================== E. CHARACTER (on-foot) ===========================
+  // Revive + reset to a clean state for the character gauntlet.
+  game.dead = false; game.player.health = 100;
+  F._resetToIdle(); tick(2);
+  // Stop the boat (it's coasting from C8) so the deck doesn't sail out
+  // from under the character mid-jump.
+  game.boat.speed = 0; game.boat.throttle = 0; game.boat.rudder = 0;
+  const C = game.character;
+  const { CharState } = await import('../game/character.js');
+
+  // E1 disembark: V puts the player on foot with a visible body.
+  key('KeyV', true); tick(1); key('KeyV', false); tick(2);
+  check('E1a V disembarks to on-foot', C.mode === CharState.ON_DECK, C.mode);
+  check('E1b body visible', C.group.visible === true);
+  check('E1c rod hidden on foot', F.rodGroup.visible === false);
+
+  // E2 walking: S moves the character aft along the deck (the foredeck
+  // is short — walking forward from the disembark point drops overboard).
+  const p0 = C.pos.clone();
+  key('KeyS', true); tick(90); key('KeyS', false); tick(5);
+  const walked = C.pos.distanceTo(p0);
+  check('E2a walking moves character', walked > 2, `moved=${walked.toFixed(2)}m`);
+  check('E2b stayed on deck (grounded)', C.mode === CharState.ON_DECK && C.onGround === true, `mode=${C.mode} y=${C.pos.y.toFixed(2)}`);
+
+  // E3 jump: Space gives upward velocity then lands back on deck.
+  const deckY = game.boat.pos.y + 1.18;
+  key('Space', true); tick(1); key('Space', false);
+  let peakY = C.pos.y;
+  for (let i = 0; i < 60; i++) { tick(1); peakY = Math.max(peakY, C.pos.y); if (C.onGround && i > 5) break; }
+  check('E3a jump lifts off deck', peakY > deckY + 0.3, `peakΔ=${(peakY - deckY).toFixed(2)}m`);
+  tick(20); // settle (the boat rocks ±0.6 m on swells)
+  const deckY2 = game.boat.pos.y + 1.18;
+  check('E3b lands back grounded', C.onGround === true && Math.abs(C.pos.y - deckY2) < 0.8, `y=${C.pos.y.toFixed(2)} deck=${deckY2.toFixed(2)}`);
+
+  // E4 fall overboard -> swimming: teleport past the rail, let gravity drop.
+  C.pos.set(game.boat.pos.x + 6, game.boat.pos.y + 2, game.boat.pos.z);
+  C.vel.set(0, 0, 0); tick(60);
+  check('E4a fell into water -> swimming', C.mode === CharState.SWIMMING, C.mode);
+  const surf = game.ocean.sampleWaveHeight(C.pos.x, C.pos.z, game.simTime);
+  check('E4b submerged at surface level', C.pos.y < surf + 0.2 && C.pos.y > surf - 4, `y=${C.pos.y.toFixed(2)} surf=${surf.toFixed(2)}`);
+
+  // E5 swim toward boat + E boards.
+  for (let i = 0; i < 60 * 8; i++) {
+    // Face the boat and swim forward.
+    C.camYaw = Math.atan2(game.boat.pos.x - C.pos.x, game.boat.pos.z - C.pos.z) + Math.PI;
+    key('KeyW', true); tick(1); key('KeyW', false);
+    if (C.mode === CharState.BOARDING) break;
+  }
+  if (C.mode === CharState.SWIMMING) { key('KeyE', true); tick(1); key('KeyE', false); }
+  tick(90);
+  check('E5a boarded back on deck', C.mode === CharState.ON_DECK, C.mode);
+  check('E5b standing on foredeck', Math.abs(C.pos.y - game.boat.pos.y - 1.18) < 0.8, `y=${C.pos.y.toFixed(2)}`);
+
+  // E6 V returns to the helm; fishing works again.
+  key('KeyV', true); tick(1); key('KeyV', false); tick(2);
+  check('E6a V returns to helm', C.mode === CharState.HELM, C.mode);
+  check('E6b body hidden at helm', C.group.visible === false);
+  check('E6c rod visible at helm', F.rodGroup.visible === true);
+
   // ===================== D. PERFORMANCE ====================================
-  game.dead = false; game.player.health = 100; // revive for perf run
   const t0 = performance.now();
   const PERF_N = 120;
   for (let i = 0; i < PERF_N; i++) game.tickOnce(DT); // eslint-disable-line no-unused-expressions

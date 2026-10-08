@@ -12,6 +12,7 @@ import AudioManager from './audio.js';
 import OceanSystem from './ocean.js';
 import SkySystem from './sky.js';
 import Boat from './boat.js';
+import Character, { CharState } from './character.js';
 import { FishPopulation } from './fish.js';
 import FishingSystem, { FishState } from './fishing.js';
 import Environment from './environment.js';
@@ -46,6 +47,7 @@ export class Game {
     this.ocean = new OceanSystem(this.scene);
     this.sky = new SkySystem(this.scene);
     this.boat = new Boat(this.scene, this.ocean);
+    this.character = new Character(this.scene, this.boat, this.ocean, this.audio);
     this.population = new FishPopulation(this.scene);
     this.environment = new Environment(this.scene);
     this.fishing = new FishingSystem(this.scene, this.camera, this.boat, this.population, this.audio);
@@ -143,6 +145,7 @@ export class Game {
     this._updateTimeWeather(dt);
     this._updatePlayer(dt);
     this._updateBoat(dt);
+    this._updateCharacter(dt);
     this._updateLook(dt);
     this._updateSystems(dt);
     this._render();
@@ -178,9 +181,11 @@ export class Game {
   }
 
   _updateBoat(dt) {
-    const throttleAxis = this.input.axis('KeyW', 'KeyS');
-    const steerAxis = this.input.axis('KeyD', 'KeyA'); // D = turn right (CW from above)
-    const boosting = this.input.key('ShiftLeft') || this.input.key('ShiftRight');
+    // Helm controls only apply while the player is at the wheel.
+    const atHelm = this.character.mode === CharState.HELM;
+    const throttleAxis = atHelm ? this.input.axis('KeyW', 'KeyS') : 0;
+    const steerAxis = atHelm ? this.input.axis('KeyD', 'KeyA') : 0; // D = turn right
+    const boosting = atHelm && (this.input.key('ShiftLeft') || this.input.key('ShiftRight'));
     this.boat.setInput({ throttleAxis, steerAxis, boosting });
     const boatState = this.boat.update(dt, this.simTime);
     this.lastBoatState = boatState;
@@ -189,9 +194,42 @@ export class Game {
 
   _updateLook(dt) {
     const { dx, dy } = this.input.consumeMouse();
-    const sens = CONFIG.player.lookSensitivity;
-    this.lookYaw = (this.lookYaw ?? 0) - dx * sens;
-    this.lookPitch = clamp((this.lookPitch ?? 0) - dy * sens, -1.35, 1.35);
+    if (this.character.mode === CharState.HELM) {
+      const sens = CONFIG.player.lookSensitivity;
+      this.lookYaw = (this.lookYaw ?? 0) - dx * sens;
+      this.lookPitch = clamp((this.lookPitch ?? 0) - dy * sens, -1.35, 1.35);
+    } else {
+      // Third-person orbit camera.
+      this.character.applyLook(dx, dy);
+    }
+  }
+
+  _updateCharacter(dt) {
+    const C = this.character;
+    const inp = {
+      move: this.input.axis('KeyW', 'KeyS'),
+      strafe: this.input.axis('KeyD', 'KeyA'),
+      jump: this.input.pressedOnce('Space'),
+      swimUp: this.input.key('Space'), // held — treading water needs the sustain
+      run: this.input.key('ShiftLeft') || this.input.key('ShiftRight'),
+    };
+
+    // Mode switching.
+    if (this.input.pressedOnce('KeyV')) {
+      if (C.mode === CharState.HELM) {
+        C.disembark();
+        this.hud.toast('ON FOOT — V for the helm, E to board', '');
+      } else if (C.mode === CharState.ON_DECK) {
+        C.toHelm();
+        this.hud.toast('AT THE HELM', '');
+      }
+    }
+    if (this.input.pressedOnce('KeyE') && C.mode === CharState.SWIMMING) {
+      if (C.startBoarding()) this.hud.toast('BOARDING…', '');
+    }
+
+    const res = C.update(dt, this.simTime, inp);
+    this.nearBoat = res.nearBoat;
   }
 
   _updatePlayer(dt) {
@@ -228,14 +266,20 @@ export class Game {
 
     this.population.update(dt, this.simTime, (x, z, t) => this.ocean.sampleWaveHeight(x, z, t));
 
-    // Fishing consumes input edges; feed mouse-down state for reel anim.
-    this.fishing.setMouseDown(this.input.mouseDown);
+    // Fishing only works from the helm (the rod is a first-person prop).
+    const atHelm = this.character.mode === CharState.HELM;
+    this.fishing.enabled = atHelm;
+    this.fishing.setMouseDown(atHelm && this.input.mouseDown);
     this.fishing.update(dt, this.simTime, this.input);
 
     this.environment.update(dt, this.simTime, camPos, this.storm);
 
-    // Camera placement (after boat moved).
-    this.boat.placeCamera(this.camera, this.lookYaw ?? 0, this.lookPitch ?? 0);
+    // Camera placement (after boat + character moved).
+    if (atHelm) {
+      this.boat.placeCamera(this.camera, this.lookYaw ?? 0, this.lookPitch ?? 0);
+    } else {
+      this.character.placeCamera(this.camera, dt);
+    }
 
     // Audio.
     this.audio.update(dt, {
@@ -252,6 +296,8 @@ export class Game {
       fuel: (this.boat.fuel / CONFIG.boat.fuelCapacity) * 100,
       hour: this.hour,
       storm: this.storm,
+      mode: this.character.mode,
+      nearBoat: this.nearBoat,
       headingDeg: (this.boat.heading * 180 / Math.PI + 360) % 360,
       fishing: this.fishing.hud(),
       damageFlash: this.player.damageFlash,

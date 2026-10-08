@@ -73,6 +73,16 @@ export const CONFIG = {
     healthRegen: 1.5,        // %/sec when safe
     strikeDamageMin: 8,
     strikeDamageMax: 22,
+    // On-foot (third-person) movement
+    walkSpeed: 3.2,           // m/s
+    runSpeed: 6.8,            // m/s (Shift)
+    jumpVel: 5.4,             // m/s initial
+    gravity: 14.0,            // m/s^2 (floaty-but-weighty)
+    swimSpeed: 2.6,           // m/s horizontal
+    swimSink: 1.6,             // m/s downward drift
+    swimDepth: 3.2,            // m below surface before auto-climb
+    swimUpSpeed: 2.2,         // m/s climbing back to surface
+    boardDist: 4.5,           // m from boat center to press E and climb aboard
   },
 
   // ---- Fishing -----------------------------------------------------------

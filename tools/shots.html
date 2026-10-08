@@ -41,6 +41,25 @@ if (scene === 'night') {
   const fish = game.population.fish[0];
   fish.group.position.set(3, -1.2, -14);
   tick(40);
+} else if (scene === 'onfoot') {
+  // Third-person: get on foot, face aft, walk aft toward the stern.
+  // (With the camera astern, W would walk INTO the bow and off the deck.)
+  game.character.disembark();
+  const C = game.character;
+  C.yaw = game.boat.heading + Math.PI; // face the stern
+  C.camYaw = C.yaw + Math.PI;           // camera behind, looking at the man
+  key('KeyS', true); tick(50); key('KeyS', false); tick(10);
+} else if (scene === 'swim') {
+  // Jump overboard and tread water at the surface (hold Space to rise).
+  game.character.disembark();
+  const C = game.character;
+  C.pos.set(game.boat.pos.x + 5.5, game.boat.pos.y + 1, game.boat.pos.z);
+  C.vel.set(0, 0, 0);
+  key('Space', true); tick(150); // falls in -> swims up to the surface
+  key('Space', false); tick(10);
+  // Camera on the boat side, looking at the swimmer.
+  C.camYaw = Math.atan2(game.boat.pos.x - C.pos.x, game.boat.pos.z - C.pos.z);
+  tick(10);
 } else {
   tick(40);
 }
@@ -53,6 +72,7 @@ if (scene === 'night') {
     game.fishing.catchMeter = 0.5;
     game.input.mouseDown = true;
   }
+  if (scene === 'swim') game.input.keys.Space = true; // tread water at the surface
   game.tickOnce(DT);
   requestAnimationFrame(loop);
 })();

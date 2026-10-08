@@ -19,10 +19,11 @@ const TEMPLATE = /* html */`
   <!-- Top-center: compass strip -->
   <div class="compass-strip" id="hud-compass"></div>
 
-  <!-- Top-right: clock + weather -->
+  <!-- Top-right: clock + weather + mode -->
   <div class="panel clockbox">
     <div id="hud-clock">07:30</div>
     <div id="hud-weather">CLEAR</div>
+    <div id="hud-mode">HELM</div>
   </div>
 
   <!-- Bottom-center: fishing UI -->
@@ -45,10 +46,14 @@ const TEMPLATE = /* html */`
     </div>
   </div>
 
+  <!-- Contextual prompt (center-bottom, above fishing UI) -->
+  <div class="prompt" id="hud-prompt" hidden></div>
+
   <!-- Bottom-left: controls hint -->
   <div class="controls-hint" id="hud-controls">
-    <div><b>W/S</b> throttle &nbsp;<b>A/D</b> steer &nbsp;<b>Shift</b> boost</div>
-    <div><b>SPACE</b> cast / strike &nbsp;<b>LMB</b> reel &nbsp;<b>R</b> retrieve</div>
+    <div><b>V</b> helm ⇄ on foot &nbsp;<b>E</b> board (in water)</div>
+    <div><b>WASD</b> drive / move &nbsp;<b>Shift</b> boost / run &nbsp;<b>SPACE</b> cast / jump</div>
+    <div><b>LMB</b> reel &nbsp;<b>R</b> retrieve &nbsp;<b>ESC</b> pause</div>
   </div>
 
   <!-- Toast (catch results) -->
@@ -71,8 +76,8 @@ export class Hud {
     const $ = (id) => document.getElementById(id);
     this.el = {
       health: $('hud-health'), stamina: $('hud-stamina'), fuel: $('hud-fuel'),
-      clock: $('hud-clock'), weather: $('hud-weather'),
-      compass: $('hud-compass'),
+      clock: $('hud-clock'), weather: $('hud-weather'), mode: $('hud-mode'),
+      compass: $('hud-compass'), prompt: $('hud-prompt'),
       alert: $('hud-alert'),
       chargeBlock: $('hud-charge-block'), charge: $('hud-charge'),
       tensionBlock: $('hud-tension-block'), tension: $('hud-tension'), sweetspot: $('hud-sweetspot'),
@@ -91,6 +96,16 @@ export class Hud {
     e.fuel.style.width = `${state.fuel}%`;
     e.clock.textContent = formatClock(state.hour);
     e.weather.textContent = state.storm ? '⛈ STORM' : '☀ CLEAR';
+
+    // Mode badge + contextual prompt.
+    const mode = state.mode || 'helm';
+    e.mode.textContent = mode === 'helm' ? 'HELM' : mode === 'swimming' ? 'SWIMMING' : mode === 'boarding' ? 'BOARDING' : 'ON FOOT';
+    let prompt = '';
+    if (mode === 'swimming' && state.nearBoat) prompt = 'Press <b>E</b> to board the boat';
+    else if (mode === 'on_deck') prompt = '<b>V</b> — back to the helm';
+    else if (mode === 'helm') prompt = '<b>V</b> — get on foot';
+    if (prompt) { e.prompt.innerHTML = prompt; e.prompt.hidden = false; }
+    else e.prompt.hidden = true;
 
     // Compass: heading 0 faces north (-Z). Marks slide so the bearing under the
     // center notch equals current heading; triple-render for seamless wrap.
@@ -182,6 +197,8 @@ export class Hud {
             <li><b>SPACE</b> — strike when the bobber dives</li>
             <li><b>HOLD LMB</b> — reel during the fight</li>
             <li><b>R</b> — retrieve line</li>
+            <li><b>V</b> — leave the helm, walk the deck (third person)</li>
+            <li><b>SPACE</b> — jump &nbsp;·&nbsp; walk overboard to swim, <b>E</b> to board</li>
           </ul>
           <p class="tip">Keep line tension in the amber zone to land the fish.<br/>
           Red zone snaps the line. Watch your fuel — the shore is far.</p>
