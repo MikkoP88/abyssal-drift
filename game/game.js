@@ -16,6 +16,7 @@ import Character, { CharState } from './character.js';
 import { FishPopulation } from './fish.js';
 import FishingSystem, { FishState } from './fishing.js';
 import Environment from './environment.js';
+import PostFx from './post.js';
 import Hud from './hud.js';
 
 export class Game {
@@ -25,6 +26,8 @@ export class Game {
 
     // Renderer (?preserve enables drawing-buffer readback for validation)
     const preserve = typeof location !== 'undefined' && location.search.includes('preserve');
+    this.noPost = typeof location !== 'undefined' && location.search.includes('nopost');
+    this.passThru = typeof location !== 'undefined' && location.search.includes('passthru');
     this.renderer = new THREE.WebGLRenderer({
       canvas, antialias: CONFIG.render.antialias, powerPreference: 'high-performance',
       preserveDrawingBuffer: preserve,
@@ -34,6 +37,9 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = CONFIG.render.toneMappingExposure;
+    // Two renders per frame (world → target, grade → screen); accumulate
+    // stats across both so renderer.info reflects the full frame.
+    this.renderer.info.autoReset = false;
 
     // Scene + camera
     this.scene = new THREE.Scene();
@@ -53,6 +59,7 @@ export class Game {
     this.fishing = new FishingSystem(this.scene, this.camera, this.boat, this.population, this.audio);
     this.fishing.setOceanSampler((x, z, t) => this.ocean.sampleWaveHeight(x, z, t));
     this.hud = new Hud(this.ui);
+    this.post = new PostFx(this.renderer, this.scene);
 
     // Player state
     this.player = {
@@ -91,6 +98,7 @@ export class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.post.resize(window.innerWidth, window.innerHeight);
     });
   }
 
@@ -306,7 +314,29 @@ export class Game {
   }
 
   _render() {
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+
+    // Project the sun into clip space for the lens halo (hide when below
+    // the horizon: ndc.y < -1 disables it in the shader). Clone the
+    // quaternion — invert() mutates in place and must not touch the camera.
+    const sun = this.atmo ? this.atmo.sunDir : null;
+    let sunNdc = [0, -2];
+    let sunStrength = 0;
+    if (sun) {
+      const camQ = this.camera.quaternion.clone().invert();
+      const v = sun.clone().applyQuaternion(camQ).project(this.camera);
+      sunNdc = [v.x, v.y];
+      const df = this.atmo.dayFactor;
+      sunStrength = df * df * 0.85; // strongest at noon, fades to dusk
+    }
+    if (typeof location !== 'undefined' && location.search.includes('nopost')) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    // ?nopost bypasses the grade pass (bisecting render pipeline).
+    if (this.noPost) { this.renderer.render(this.scene, this.camera); return; }
+    this.post.mat.uniforms.uPassThrough.value = this.passThru ? 1 : 0;
+    this.post.render(this.camera, this.simTime, sunNdc, sunStrength, this.storm ? 0.05 : 0);
   }
 
   // Validation aid: sample average RGB of horizontal bands of the last

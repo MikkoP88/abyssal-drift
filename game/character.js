@@ -136,8 +136,12 @@ export class Character {
   disembark() {
     if (this.mode !== CharState.HELM) return false;
     this.mode = CharState.ON_DECK;
-    const a = this.boat.eyeAnchor.getWorldPosition(new THREE.Vector3());
-    this.pos.copy(a);
+    // Stand on the foredeck (NOT the helm eye anchor): from here walking
+    // aft has room to run toward midships before reaching any rail, so
+    // walk/jump tests stay grounded on deck instead of drifting off the
+    // stern edge. The FP camera stays at the wheel; the standing player
+    // does not.
+    this.pos.copy(this._deckStationWorld());
     this.pos.y = this._deckWorldY(); // feet on the deck top surface
     this.vel.set(0, 0, 0);
     this.yaw = this.boat.heading;
@@ -342,6 +346,8 @@ export class Character {
 
   _deckStationWorld() {
     // Foredeck standing station in world space (group space: bow at -Z).
+    // Deliberately NOT the helm eye anchor: the helm eye anchor — a standing player needs
+    // walking room toward midships so a long stroll stays on deck.
     const local = new THREE.Vector3(0, 1.18, -3.4);
     const c = Math.cos(this.boat.heading), s = Math.sin(this.boat.heading);
     return new THREE.Vector3(

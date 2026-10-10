@@ -113,9 +113,11 @@ async function main() {
   check('B1d deck is wood-toned', dayProbe.deck[0] > dayProbe.deck[2], `deck=${dayProbe.deck}`);
   check('B1e no black frame', sum(dayProbe.sky) + sum(dayProbe.sea) + sum(dayProbe.deck) > 150);
 
-  // Sea animates over time (waves moving).
+  // Sea animates over time (waves moving). Longer window: from the cockpit
+  // eye the sampled band sits farther out, where per-frame shading drift is
+  // subtler, so give the wave field more time to visibly advance.
   const seaA = [...game.probePixels().sea];
-  tick(90);
+  tick(240);
   const seaB = game.probePixels().sea;
   check('B2 sea animates', seaA.some((v, i) => v !== seaB[i]), `${seaA} -> ${seaB}`);
 

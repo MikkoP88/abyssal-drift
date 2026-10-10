@@ -10,10 +10,17 @@ are deliberately decoupled (config tables, pure-function math, discrete
 systems) so the gameplay logic ports to **Unreal Engine 5** with minimal
 rewiring — see [Porting to Unreal](#porting-to-unreal) below.
 
-Like a real fisherman sim, you are a **visible character**, not just a
-camera: leave the helm (`V`), walk the deck, run, jump, walk overboard,
-swim, and board the boat again (`E`) — third-person orbit camera on foot,
-first-person at the wheel.
+The default view is **from inside the cockpit** — seated at the helm,
+steering wheel in front of you, teak dash and gauge cluster below,
+windshield and hardtop framing the sea. Like a real fisherman sim you are
+also a **visible character**: leave the helm (`V`), walk the deck, run,
+jump, walk overboard, swim, and board the boat again (`E`) — third-person
+orbit camera on foot, first-person at the wheel.
+
+Rendering runs a hand-rolled filmic post pass (`post.js`): scene → render
+target → grade quad with radial chromatic aberration, animated film grain,
+an anamorphic sun halo, saturation/contrast grade, and a cinematic
+vignette — all offline, no post-processing libraries.
 
 ## ▶ Play it live
 
@@ -85,8 +92,11 @@ game/
                     wave field so boat/fish ride the exact rendered surface.
   sky.js            Shader skydome (day/night, sun, moon, stars, clouds) +
                     owns sun/hemi/ambient lights + scene fog
-  boat.js           Procedural hull (lofted geometry), physics, wave-follow
-                    tilt, first-person camera rig
+  boat.js           Procedural hull (lofted geometry) with a full interior
+                    cockpit (teak dash, gauge cluster, helm wheel, seat,
+                    windshield, hardtop), contact shadow + wake spray,
+                    physics, wave-follow tilt, first-person camera rig
+                    anchored INSIDE the cockpit at the helm by default
   character.js      The visible fisherman: procedural humanoid (limb
                     pivots, jacket, cap, rod over shoulder), walk/run/jump
                     on deck, swimming, boarding (E), third-person orbit
@@ -97,6 +107,10 @@ game/
   fishing.js        Rod/line/bobber + state machine:
                     IDLE→CASTING→WAITING→BITE→FIGHT→CAUGHT/BROKEN/ESCAPED
   environment.js    Rocks, island silhouettes, gulls, storm rain
+  post.js           Hand-rolled filmic post pass (core-only Three.js has no
+                    EffectComposer): scene → render target → grade quad with
+                    radial chromatic aberration, film grain, sun halo,
+                    saturation/contrast, vignette, sRGB encode
   hud.js            DOM overlay: vitals, compass, clock, fishing meters,
                     alerts, toasts, start/death screens
   game.js           Orchestrator: renderer, frame loop, survival state,
@@ -142,11 +156,13 @@ girth, palette, speed, aggression, weight range, depth band) — drop it into a
 
 ### Closing the photorealism gap (roadmap)
 
-The prototype is stylized-realtime. To reach the Alan Wake 2 / GTA IV bar in
-Unreal: Nanite-scanned hull + fish assets, Quixel Megascans water/rocks,
-Lumen GI, virtual shadow maps, Niagara spray/foam/volumetrics, motion-captured
-swim cycles, and a full post stack (film grain, bloom, depth-aware fog). The
-gameplay skeleton above is what you'd keep.
+The prototype ships a real-time filmic post stack (grain, vignette,
+chromatic aberration, sun halo — `post.js`) and a fully modeled interior
+cockpit. To reach the Alan Wake 2 / GTA IV bar in Unreal: Nanite-scanned
+hull + fish assets, Quixel Megascans water/rocks, Lumen GI, virtual shadow
+maps, Niagara spray/foam/volumetrics, motion-captured swim cycles, and a
+deeper post stack (bloom, depth-aware fog, god rays). The gameplay skeleton
+above is what you'd keep.
 
 ---
 
@@ -160,8 +176,9 @@ URL:
 
 ```
 A. STRUCTURE / GEOMETRY (17)
-   A1  renderer live: 45+ draw calls, ~24k tris/frame, 6 shader programs,
-       73 scene nodes
+   A1  renderer live: 45+ draw calls, ~24k tris/frame, 5+ shader programs
+       (measured: 89 calls / 27,210 tris / 13 programs across the two-pass
+       world→target + grade pipeline)
    A2  geometry sweep: 206 meshes, ~38,528 tris total, 0 NaN vertices,
        0 empty geometries
    A3  boat hull bounding box = 9.00 m; forward vector unit-length
@@ -171,9 +188,9 @@ A. STRUCTURE / GEOMETRY (17)
 
 B. GRAPHICS — pixel probes via readPixels (8)
    B1  day: sky blue+bright [81,123,197], sea cool water hue, deck wood-toned,
-       no black frame
+       no black frame (probed from INSIDE the cockpit — the default view)
    B2  sea animates (wave field visibly advancing)
-   B3  night: sky dark [6,7,10], sea dims, headlight warms deck [221,205,178]
+   B3  night: sky dark [6,7,10], sea dims, cabin glow warms the dash
 
 C. GAMEPLAY (20)
    C1-C5  full chain: idle → charged cast → waiting → forced bite → strike
